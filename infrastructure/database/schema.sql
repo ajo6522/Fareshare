@@ -13,6 +13,7 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE companies (
     company_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
@@ -40,6 +41,7 @@ CREATE TABLE companies (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE company_members (
     company_member_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     company_id INTEGER NOT NULL REFERENCES companies(company_id),
@@ -48,6 +50,7 @@ CREATE TABLE company_members (
     joined_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(company_id, user_id)
 );
+
 CREATE TABLE driver_profiles (
     driver_profile_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
@@ -83,16 +86,22 @@ CREATE TABLE vehicles (
     vehicle_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     company_id INTEGER REFERENCES companies(company_id),
     driver_profile_id INTEGER REFERENCES driver_profiles(driver_profile_id),
+
     make VARCHAR(100) NOT NULL,
     model VARCHAR(100) NOT NULL,
     vehicle_year INTEGER NOT NULL,
     color VARCHAR(50),
+
     license_plate VARCHAR(20) UNIQUE NOT NULL,
     state_region VARCHAR(100),
+
     passenger_capacity INTEGER NOT NULL,
     wheelchair_accessible BOOLEAN NOT NULL DEFAULT FALSE,
+
     vehicle_image_key TEXT,
+
     approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -102,20 +111,54 @@ CREATE TABLE vehicles (
         (company_id IS NULL AND driver_profile_id IS NOT NULL)
     )
 );
+
 CREATE TABLE rides (
     ride_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
     company_id INTEGER NOT NULL REFERENCES companies(company_id),
     vehicle_id INTEGER REFERENCES vehicles(vehicle_id),
 
     pickup_location TEXT NOT NULL,
     destination_location TEXT NOT NULL,
+
     departure_time TIMESTAMPTZ NOT NULL,
-    available_seats INTEGER NOT NULL CHECK (available_seats >= 0),
-    price DECIMAL(10, 2) CHECK (price >= 0),
+
+    available_seats INTEGER NOT NULL
+        CHECK (available_seats >= 0),
+
+    price DECIMAL(10, 2)
+        CHECK (price >= 0),
 
     ride_status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE services (
+    service_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    company_id INTEGER REFERENCES companies(company_id),
+    driver_profile_id INTEGER REFERENCES driver_profiles(driver_profile_id),
+
+    service_name VARCHAR(100) NOT NULL,
+    description TEXT,
+
+    pricing_type VARCHAR(20) NOT NULL DEFAULT 'QUOTE',
+
+    starting_price DECIMAL(10,2)
+        CHECK (starting_price >= 0),
+
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT service_provider_check CHECK (
+        (company_id IS NOT NULL AND driver_profile_id IS NULL)
+        OR
+        (company_id IS NULL AND driver_profile_id IS NOT NULL)
+    )
 );
 
 CREATE TABLE ride_requests (
@@ -130,6 +173,7 @@ CREATE TABLE ride_requests (
 
     pickup_location TEXT NOT NULL,
     destination_location TEXT NOT NULL,
+
     requested_pickup_time TIMESTAMPTZ NOT NULL,
 
     passenger_count INTEGER NOT NULL
@@ -152,29 +196,7 @@ CREATE TABLE ride_requests (
         (company_id IS NULL AND driver_profile_id IS NOT NULL)
     )
 );
-CREATE TABLE services (
-    service_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
-    company_id INTEGER REFERENCES companies(company_id),
-    driver_profile_id INTEGER REFERENCES driver_profiles(driver_profile_id),
-
-    service_name VARCHAR(100) NOT NULL,
-    description TEXT,
-
-    pricing_type VARCHAR(20) NOT NULL DEFAULT 'QUOTE',
-    starting_price DECIMAL(10,2) CHECK (starting_price >= 0),
-
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT service_provider_check CHECK (
-        (company_id IS NOT NULL AND driver_profile_id IS NULL)
-        OR
-        (company_id IS NULL AND driver_profile_id IS NOT NULL)
-    )
-);
 CREATE TABLE reviews (
     review_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
