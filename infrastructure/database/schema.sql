@@ -164,6 +164,8 @@ CREATE TABLE services (
 CREATE TABLE ride_requests (
     ride_request_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
+    ride_id INTEGER NOT NULL REFERENCES rides(ride_id),
+
     user_id INTEGER NOT NULL REFERENCES users(user_id),
 
     company_id INTEGER REFERENCES companies(company_id),

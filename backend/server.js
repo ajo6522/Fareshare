@@ -25,7 +25,10 @@ const secretsClient = new SecretsManagerClient({
 
 let pool;
 
-// Connect to RDS using the password stored in AWS Secrets Manager
+// --------------------------------------------------
+// DATABASE CONNECTION
+// --------------------------------------------------
+
 async function connectToDatabase() {
   const response = await secretsClient.send(
     new GetSecretValueCommand({
@@ -46,19 +49,25 @@ async function connectToDatabase() {
     },
   });
 
-  // Test the database connection
   const result = await pool.query("SELECT NOW()");
 
   console.log("Connected to PostgreSQL RDS");
   console.log("Database time:", result.rows[0].now);
 }
 
-// Health check
+// --------------------------------------------------
+// HEALTH
+// --------------------------------------------------
+
 app.get("/health", (req, res) => {
   res.send("OK");
 });
 
-// Get all rides from PostgreSQL
+// --------------------------------------------------
+// RIDES
+// --------------------------------------------------
+
+// Get all rides
 app.get("/rides", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -88,7 +97,7 @@ app.get("/rides", async (req, res) => {
   }
 });
 
-// Get a single ride from PostgreSQL
+// Get a single ride
 app.get("/rides/:rideId", async (req, res) => {
   try {
     const result = await pool.query(
@@ -127,14 +136,80 @@ app.get("/rides/:rideId", async (req, res) => {
   }
 });
 
-// Get ride requests
+// Create a ride
+app.post("/rides", async (req, res) => {
+  const {
+    companyId,
+    vehicleId,
+    pickupLocation,
+    destinationLocation,
+    departureTime,
+    availableSeats,
+    price,
+  } = req.body;
+
+  if (
+    !companyId ||
+    !pickupLocation ||
+    !destinationLocation ||
+    !departureTime ||
+    availableSeats === undefined
+  ) {
+    return res.status(400).json({
+      message:
+        "companyId, pickupLocation, destinationLocation, departureTime, and availableSeats are required",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      INSERT INTO rides (
+        company_id,
+        vehicle_id,
+        pickup_location,
+        destination_location,
+        departure_time,
+        available_seats,
+        price
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+      `,
+      [
+        companyId,
+        vehicleId || null,
+        pickupLocation,
+        destinationLocation,
+        departureTime,
+        availableSeats,
+        price ?? null,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error creating ride:", error);
+
+    res.status(500).json({
+      message: "Internal Server Error",
+    });
+  }
+});
+
+// --------------------------------------------------
+// RIDE REQUESTS
+// --------------------------------------------------
+
+// Get all requests for a specific ride
 app.get("/rides/:rideId/requests", async (req, res) => {
   try {
     const result = await pool.query(
       `
       SELECT *
       FROM ride_requests
-      WHERE ride_request_id = $1
+      WHERE ride_id = $1
+      ORDER BY created_at ASC
       `,
       [req.params.rideId]
     );
@@ -149,7 +224,10 @@ app.get("/rides/:rideId/requests", async (req, res) => {
   }
 });
 
-// Start the application only after the database connection succeeds
+// --------------------------------------------------
+// START SERVER
+// --------------------------------------------------
+
 async function startServer() {
   try {
     await connectToDatabase();
