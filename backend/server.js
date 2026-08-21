@@ -1,68 +1,125 @@
 const express = require("express");
+const { Pool } = require("pg");
+const {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} = require("@aws-sdk/client-secrets-manager");
 
 const app = express();
 app.use(express.json());
 
 const PORT = 3000;
 
-// Sample data
-const rides = [
-  {
-    rideId: 1,
-    origin: "Downtown",
-    destination: "Airport",
-    availableSeats: 3,
-  },
-];
+const DB_HOST =
+  "fareshare-db.ck54aaaswng8.us-east-1.rds.amazonaws.com";
+
+const DB_NAME = "fareshare";
+const DB_PORT = 5432;
+
+const SECRET_ID =
+  "arn:aws:secretsmanager:us-east-1:577638364357:secret:rds!db-aabefbc2-2c4c-4bce-a22e-58e8a63c4003-69MCtf";
+
+const secretsClient = new SecretsManagerClient({
+  region: "us-east-1",
+});
+
+let pool;
+
+// Connect to RDS using the password stored in AWS Secrets Manager
+async function connectToDatabase() {
+  const response = await secretsClient.send(
+    new GetSecretValueCommand({
+      SecretId: SECRET_ID,
+    })
+  );
+
+  const secret = JSON.parse(response.SecretString);
+
+  pool = new Pool({
+    host: DB_HOST,
+    port: DB_PORT,
+    database: DB_NAME,
+    user: secret.username,
+    password: secret.password,
+    ssl: {
+      rejectUnauthorized: false,
+    },
+  });
+
+  // Test the database connection
+  const result = await pool.query("SELECT NOW()");
+
+  console.log("Connected to PostgreSQL RDS");
+  console.log("Database time:", result.rows[0].now);
+}
 
 // Health check
 app.get("/health", (req, res) => {
   res.send("OK");
 });
 
-// Get all rides
-app.get("/rides", (req, res) => {
-  res.json(rides);
-});
-
-// Get a single ride
-app.get("/rides/:rideId", (req, res) => {
-  const ride = rides.find(
-    (ride) => ride.rideId === parseInt(req.params.rideId)
-  );
-
-  if (!ride) {
-    return res.status(404).json({
-      message: "Ride not found",
-    });
-  }
-
-  res.json(ride);
-});
-
-// Create a ride
-app.post("/rides", (req, res) => {
-  const { origin, destination, availableSeats } = req.body;
-
-  if (!origin || !destination || !availableSeats) {
-    return res.status(400).json({
-      message: "origin, destination and availableSeats are required",
-    });
-  }
-
+// Get all rides from PostgreSQL
+app.get("/rides", async (req, res) => {
   try {
-    const newRide = {
-      rideId: rides.length + 1,
-      origin,
-      destination,
-      availableSeats,
-    };
+    const result = await pool.query(`
+      SELECT
+        ride_id,
+        company_id,
+        vehicle_id,
+        pickup_location,
+        destination_location,
+        departure_time,
+        available_seats,
+        price,
+        ride_status,
+        created_at,
+        updated_at
+      FROM rides
+      ORDER BY departure_time ASC
+    `);
 
-    rides.push(newRide);
-
-    res.status(201).json(newRide);
+    res.json(result.rows);
   } catch (error) {
-    console.error(error);
+    console.error("Error retrieving rides:", error);
+
+    res.status(500).json({
+      message: "Internal Server Error",
+    });
+  }
+});
+
+// Get a single ride from PostgreSQL
+app.get("/rides/:rideId", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        ride_id,
+        company_id,
+        vehicle_id,
+        pickup_location,
+        destination_location,
+        departure_time,
+        available_seats,
+        price,
+        ride_status,
+        created_at,
+        updated_at
+      FROM rides
+      WHERE ride_id = $1
+      `,
+      [req.params.rideId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: "Ride not found",
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error retrieving ride:", error);
 
     res.status(500).json({
       message: "Internal Server Error",
@@ -71,18 +128,39 @@ app.post("/rides", (req, res) => {
 });
 
 // Get ride requests
-app.get("/rides/:rideId/requests", (req, res) => {
-  res.json([]);
+app.get("/rides/:rideId/requests", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM ride_requests
+      WHERE ride_request_id = $1
+      `,
+      [req.params.rideId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error retrieving ride requests:", error);
+
+    res.status(500).json({
+      message: "Internal Server Error",
+    });
+  }
 });
 
-// Update a ride request
-app.patch("/requests/:requestId", (req, res) => {
-  res.json({
-    message: "Ride request updated (sample response)",
-  });
-});
+// Start the application only after the database connection succeeds
+async function startServer() {
+  try {
+    await connectToDatabase();
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to connect to database:", error);
+    process.exit(1);
+  }
+}
+
+startServer();
