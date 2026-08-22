@@ -224,6 +224,93 @@ app.get("/rides/:rideId/requests", async (req, res) => {
   }
 });
 
+// Create a ride request
+app.post("/rides/:rideId/requests", async (req, res) => {
+  const {
+    userId,
+    serviceId,
+    pickupLocation,
+    destinationLocation,
+    requestedPickupTime,
+    passengerCount,
+    accessibilityNotes,
+    riderNotes,
+  } = req.body;
+
+  if (
+    !userId ||
+    !pickupLocation ||
+    !destinationLocation ||
+    !requestedPickupTime ||
+    passengerCount === undefined
+  ) {
+    return res.status(400).json({
+      message:
+        "userId, pickupLocation, destinationLocation, requestedPickupTime, and passengerCount are required",
+    });
+  }
+
+  try {
+    // Make sure the ride exists and get its company.
+    const rideResult = await pool.query(
+      `
+      SELECT ride_id, company_id
+      FROM rides
+      WHERE ride_id = $1
+      `,
+      [req.params.rideId]
+    );
+
+    if (rideResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "Ride not found",
+      });
+    }
+
+    const ride = rideResult.rows[0];
+
+    const result = await pool.query(
+      `
+      INSERT INTO ride_requests (
+        ride_id,
+        user_id,
+        company_id,
+        driver_profile_id,
+        service_id,
+        pickup_location,
+        destination_location,
+        requested_pickup_time,
+        passenger_count,
+        accessibility_notes,
+        rider_notes
+      )
+      VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *
+      `,
+      [
+        ride.ride_id,
+        userId,
+        ride.company_id,
+        serviceId || null,
+        pickupLocation,
+        destinationLocation,
+        requestedPickupTime,
+        passengerCount,
+        accessibilityNotes || null,
+        riderNotes || null,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error creating ride request:", error);
+
+    res.status(500).json({
+      message: "Internal Server Error",
+    });
+  }
+});
+
 // --------------------------------------------------
 // START SERVER
 // --------------------------------------------------
