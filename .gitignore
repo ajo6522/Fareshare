@@ -1,9 +1,17 @@
 # Node.js dependencies
 node_modules/
 
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
 # Environment variables
 .env
 .env.*
 
 # Log files
 *.log
+
+# Downloaded RDS certificate
+global-bundle.pem
