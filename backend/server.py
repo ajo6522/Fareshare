@@ -7,11 +7,15 @@ from decimal import Decimal
 from pathlib import Path
 
 import boto3
+import jwt
 import psycopg
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientError, PyJWTError
 from pydantic import BaseModel, ConfigDict, Field
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -32,12 +36,23 @@ DB_HOST = os.getenv(
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
 DB_NAME = os.getenv("DB_NAME", "fareshare")
 DB_SECRET_ID = os.getenv("DB_SECRET_ID")
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
+COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
 RDS_CA_BUNDLE = os.getenv(
     "RDS_CA_BUNDLE",
     str(Path(__file__).with_name("global-bundle.pem")),
 )
 
 pool: ConnectionPool | None = None
+cognito_issuer: str | None = None
+cognito_jwks_client: PyJWKClient | None = None
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+class AuthenticatedUser(BaseModel):
+    sub: str
+    username: str | None = None
+    scopes: list[str]
 
 
 class RideCreate(BaseModel):
@@ -89,6 +104,93 @@ ALLOWED_REQUEST_TRANSITIONS = {
     "CANCELLED": set(),
     "COMPLETED": set(),
 }
+
+
+def configure_authentication() -> None:
+    global cognito_issuer, cognito_jwks_client
+
+    missing_variables = [
+        variable_name
+        for variable_name, value in (
+            ("COGNITO_USER_POOL_ID", COGNITO_USER_POOL_ID),
+            ("COGNITO_APP_CLIENT_ID", COGNITO_APP_CLIENT_ID),
+        )
+        if not value
+    ]
+
+    if missing_variables:
+        raise RuntimeError(
+            "Missing required environment variables: "
+            + ", ".join(missing_variables)
+        )
+
+    cognito_issuer = (
+        f"https://cognito-idp.{AWS_REGION}.amazonaws.com/"
+        f"{COGNITO_USER_POOL_ID}"
+    )
+    cognito_jwks_client = PyJWKClient(
+        f"{cognito_issuer}/.well-known/jwks.json",
+        timeout=5,
+    )
+    logger.info("Configured Cognito access-token validation")
+
+
+def unauthorized_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired access token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def require_access_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise unauthorized_exception()
+
+    if cognito_issuer is None or cognito_jwks_client is None:
+        logger.error("Cognito token validator is not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service is unavailable",
+        )
+
+    try:
+        signing_key = cognito_jwks_client.get_signing_key_from_jwt(
+            credentials.credentials
+        )
+        claims = jwt.decode(
+            credentials.credentials,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=cognito_issuer,
+            leeway=30,
+            options={
+                "verify_aud": False,
+                "require": [
+                    "sub",
+                    "iss",
+                    "exp",
+                    "iat",
+                    "token_use",
+                    "client_id",
+                ],
+            },
+        )
+    except (PyJWKClientError, PyJWTError, ValueError):
+        logger.warning("Rejected an invalid Cognito access token")
+        raise unauthorized_exception() from None
+
+    if claims["token_use"] != "access":
+        logger.warning("Rejected a Cognito token with the wrong token_use")
+        raise unauthorized_exception()
+
+    if claims["client_id"] != COGNITO_APP_CLIENT_ID:
+        logger.warning("Rejected a token issued for a different app client")
+        raise unauthorized_exception()
+
+    return claims
 
 
 def connect_to_database() -> None:
@@ -153,6 +255,7 @@ def get_pool() -> ConnectionPool:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_authentication()
     connect_to_database()
 
     try:
@@ -184,6 +287,20 @@ async def validation_error_handler(_, exc: RequestValidationError):
 @app.get("/health", response_class=PlainTextResponse)
 def health():
     return "OK"
+
+
+@app.get("/auth/me", response_model=AuthenticatedUser)
+def get_authenticated_user(
+    claims: dict = Depends(require_access_token),
+):
+    username = claims.get("username")
+    scope = claims.get("scope")
+
+    return AuthenticatedUser(
+        sub=claims["sub"],
+        username=username if isinstance(username, str) else None,
+        scopes=scope.split() if isinstance(scope, str) else [],
+    )
 
 
 @app.get("/rides")
