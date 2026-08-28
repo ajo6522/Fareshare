@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "FareShare",
+    "slug": "fareshare",
+    "scheme": "fareshare",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ride.fareshare"
     },
     "android": {
+      "package": "com.ride.fareshare",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +23,15 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+  "expo-web-browser",
+  "expo-secure-store"
+],
+    "extra": {
+      "eas": {
+        "projectId": "eb57ea5d-f270-4730-92fd-b2780745cced"
+      }
     }
   }
 }
