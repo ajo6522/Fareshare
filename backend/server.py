@@ -5,10 +5,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
+from uuid import uuid4
 
 import boto3
 import jwt
 import psycopg
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -38,6 +41,8 @@ DB_NAME = os.getenv("DB_NAME", "fareshare")
 DB_SECRET_ID = os.getenv("DB_SECRET_ID")
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
 COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
+S3_UPLOAD_URL_EXPIRATION_SECONDS = 300
 RDS_CA_BUNDLE = os.getenv(
     "RDS_CA_BUNDLE",
     str(Path(__file__).with_name("global-bundle.pem")),
@@ -46,6 +51,7 @@ RDS_CA_BUNDLE = os.getenv(
 pool: ConnectionPool | None = None
 cognito_issuer: str | None = None
 cognito_jwks_client: PyJWKClient | None = None
+s3_client = None
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -53,6 +59,25 @@ class AuthenticatedUser(BaseModel):
     sub: str
     username: str | None = None
     scopes: list[str]
+
+
+class UploadRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    upload_type: Literal["profile", "vehicle"] = Field(alias="uploadType")
+    content_type: Literal[
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    ] = Field(alias="contentType")
+
+
+class UploadUrlResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    upload_url: str = Field(alias="uploadUrl")
+    object_key: str = Field(alias="objectKey")
+    expires_in: int = Field(alias="expiresIn")
 
 
 class RideCreate(BaseModel):
@@ -103,6 +128,12 @@ ALLOWED_REQUEST_TRANSITIONS = {
     "REJECTED": set(),
     "CANCELLED": set(),
     "COMPLETED": set(),
+}
+
+UPLOAD_FILE_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
 }
 
 
@@ -246,6 +277,26 @@ def connect_to_database() -> None:
     logger.info("Database time: %s", result["database_time"])
 
 
+def configure_storage() -> None:
+    global s3_client
+
+    if not S3_BUCKET_NAME:
+        raise RuntimeError("S3_BUCKET_NAME environment variable is required")
+
+    s3_client = boto3.client(
+        "s3",
+        region_name=AWS_REGION,
+    )
+    logger.info("Configured private S3 upload storage")
+
+
+def get_s3_client():
+    if s3_client is None:
+        raise RuntimeError("S3 client is not initialized")
+
+    return s3_client
+
+
 def get_pool() -> ConnectionPool:
     if pool is None:
         raise RuntimeError("Database pool is not initialized")
@@ -256,6 +307,7 @@ def get_pool() -> ConnectionPool:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_authentication()
+    configure_storage()
     connect_to_database()
 
     try:
@@ -300,6 +352,49 @@ def get_authenticated_user(
         sub=claims["sub"],
         username=username if isinstance(username, str) else None,
         scopes=scope.split() if isinstance(scope, str) else [],
+    )
+
+
+@app.post("/uploads", response_model=UploadUrlResponse)
+def create_upload_endpoint(
+    upload: UploadRequest,
+    claims: dict = Depends(require_access_token),
+):
+    extension = UPLOAD_FILE_EXTENSIONS[upload.content_type]
+    object_key = (
+        f"{upload.upload_type}/{claims['sub']}/{uuid4().hex}{extension}"
+    )
+
+    try:
+        upload_url = get_s3_client().generate_presigned_url(
+            ClientMethod="put_object",
+            Params={
+                "Bucket": S3_BUCKET_NAME,
+                "Key": object_key,
+                "ContentType": upload.content_type,
+            },
+            ExpiresIn=S3_UPLOAD_URL_EXPIRATION_SECONDS,
+            HttpMethod="PUT",
+        )
+    except (BotoCoreError, ClientError):
+        logger.exception(
+            "Could not generate an S3 upload URL for Cognito user %s",
+            claims["sub"],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not prepare the image upload",
+        ) from None
+
+    logger.info(
+        "Generated an S3 upload URL for Cognito user %s and object %s",
+        claims["sub"],
+        object_key,
+    )
+    return UploadUrlResponse(
+        upload_url=upload_url,
+        object_key=object_key,
+        expires_in=S3_UPLOAD_URL_EXPIRATION_SECONDS,
     )
 
 

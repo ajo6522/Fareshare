@@ -21,6 +21,7 @@ import {
   cognitoConfig,
   cognitoSignUpDiscovery,
 } from '../config/cognito';
+import { hasCognitoPreferredName } from '../services/cognito-profile';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -159,9 +160,17 @@ export default function SignInScreen({ navigation }: Props) {
 
       await Promise.all(secureWrites);
 
+      const hasPreferredName = await hasCognitoPreferredName();
+
       navigation.reset({
         index: 0,
-        routes: [{ name: 'Home' }],
+        routes: [
+          {
+            name: (hasPreferredName
+              ? 'Home'
+              : 'PreferredName') as any,
+          },
+        ],
       });
     } catch (error) {
       setErrorMessage(

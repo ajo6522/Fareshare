@@ -14,10 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import type { RootStackParamList } from '../navigation/app-navigator';
-import { getCognitoDisplayName } from '../services/cognito-profile';
 import { apiRequest } from '../services/api-client';
+import { getCognitoDisplayName } from '../services/cognito-profile';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'ProviderHome'>;
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 type AuthenticatedSession = {
@@ -30,7 +30,7 @@ type SessionStatus = 'loading' | 'ready' | 'error';
 
 const CHECKER_TILES = Array.from({ length: 160 });
 
-export default function HomeScreen({ navigation }: Props) {
+export default function ServiceProviderHomeScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] =
     useState<SessionStatus>('loading');
@@ -40,7 +40,7 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     let isMounted = true;
 
-    async function validateSession() {
+    async function openProviderHome() {
       setSessionStatus('loading');
       setSessionError(null);
 
@@ -64,7 +64,7 @@ export default function HomeScreen({ navigation }: Props) {
       }
     }
 
-    validateSession();
+    openProviderHome();
 
     return () => {
       isMounted = false;
@@ -74,11 +74,7 @@ export default function HomeScreen({ navigation }: Props) {
   if (sessionStatus !== 'ready') {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar
-          barStyle="light-content"
-          backgroundColor="#000000"
-        />
-
+        <StatusBar barStyle="light-content" backgroundColor="#000000" />
         <CheckerBackground />
 
         <View style={styles.sessionContainer}>
@@ -134,11 +130,7 @@ export default function HomeScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="#000000"
-      />
-
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
       <CheckerBackground />
 
       <ScrollView
@@ -161,10 +153,7 @@ export default function HomeScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.headerActions}>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.headerButton}
-            >
+            <Pressable accessibilityRole="button" style={styles.headerButton}>
               <Ionicons
                 name="notifications-outline"
                 size={27}
@@ -178,11 +167,7 @@ export default function HomeScreen({ navigation }: Props) {
               style={styles.profileButton}
               onPress={() => navigation.navigate('Profile')}
             >
-              <Ionicons
-                name="person"
-                size={25}
-                color="#8C8C96"
-              />
+              <Ionicons name="person" size={25} color="#8C8C96" />
             </Pressable>
           </View>
         </View>
@@ -191,80 +176,48 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={styles.greeting}>
             Welcome back{displayName ? `, ${displayName}` : ''}
           </Text>
-
-          <Text style={styles.question}>Where are you headed?</Text>
+          <Text style={styles.question}>Manage your services</Text>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.searchBox,
-            pressed && styles.pressedCard,
-          ]}
-          onPress={() => navigation.navigate('ServiceLocation')}
-        >
-          <Ionicons
-            name="search-outline"
-            size={31}
-            color="#A72FFF"
-          />
-
-          <Text style={styles.searchText}>
-            Search for services
-          </Text>
-        </Pressable>
-
-        <Pressable
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.serviceAction,
-            pressed && styles.pressedCard,
-          ]}
-          onPress={() => navigation.navigate('ServiceLocation')}
-        >
-          <View style={styles.serviceIconContainer}>
+        <View style={styles.providerCard}>
+          <View style={styles.providerIconContainer}>
             <MaterialCommunityIcons
               name="handshake-outline"
-              size={29}
+              size={32}
               color="#A72FFF"
             />
           </View>
 
-          <Text style={styles.serviceActionText}>Find a service</Text>
+          <View style={styles.providerCardCopy}>
+            <Text style={styles.providerCardTitle}>Service provider</Text>
+            <Text style={styles.providerCardText}>
+              Manage your business and service listings.
+            </Text>
+          </View>
+        </View>
 
-          <Ionicons
-            name="chevron-forward"
-            size={27}
-            color="#A72FFF"
-          />
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.profileAction,
+            pressed && styles.pressedCard,
+          ]}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <Ionicons name="storefront-outline" size={29} color="#A72FFF" />
+          <Text style={styles.profileActionText}>Manage business profile</Text>
+          <Ionicons name="chevron-forward" size={27} color="#A72FFF" />
         </Pressable>
 
-        <View style={styles.previousSection}>
-          <Text style={styles.previousTitle}>Previous services</Text>
-          <Text style={styles.previousEmpty}>
-            No previous services yet
-          </Text>
+        <View style={styles.servicesSection}>
+          <Text style={styles.servicesTitle}>Your services</Text>
+          <Text style={styles.servicesEmpty}>No services listed yet</Text>
         </View>
       </ScrollView>
 
       <View style={styles.bottomNavigation}>
-        <NavItem
-          icon="home-outline"
-          label="Home"
-          active
-        />
-
-        <NavItem
-          icon="search-outline"
-          label="Search"
-          onPress={() => navigation.navigate('ServiceLocation')}
-        />
-
-        <NavItem
-          icon="chatbubble-ellipses-outline"
-          label="Messages"
-        />
-
+        <NavItem icon="home-outline" label="Home" active />
+        <NavItem icon="chatbubble-ellipses-outline" label="Messages" />
         <NavItem
           icon="person-outline"
           label="Profile"
@@ -288,9 +241,7 @@ function CheckerBackground() {
             key={index}
             style={[
               styles.checkerTile,
-              isLight
-                ? styles.checkerTileLight
-                : styles.checkerTileDark,
+              isLight ? styles.checkerTileLight : styles.checkerTileDark,
             ]}
           />
         );
@@ -322,19 +273,12 @@ function NavItem({
       ]}
     >
       {active ? <View style={styles.activeIndicator} /> : null}
-
       <Ionicons
         name={icon}
         size={27}
         color={active ? '#A72FFF' : '#A5A5AE'}
       />
-
-      <Text
-        style={[
-          styles.navLabel,
-          active && styles.activeNavLabel,
-        ]}
-      >
+      <Text style={[styles.navLabel, active && styles.activeNavLabel]}>
         {label}
       </Text>
     </Pressable>
@@ -499,59 +443,69 @@ const styles = StyleSheet.create({
     color: '#9C9CA5',
     fontSize: 18,
   },
-  searchBox: {
-    minHeight: 86,
+  providerCard: {
+    minHeight: 116,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     borderWidth: 1,
     borderColor: '#414149',
     borderRadius: 19,
     backgroundColor: 'rgba(17, 17, 20, 0.92)',
     marginBottom: 20,
   },
-  searchText: {
-    color: '#A5A5AE',
-    fontSize: 18,
-    marginLeft: 17,
-  },
-  serviceAction: {
-    minHeight: 94,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    borderWidth: 1,
-    borderColor: '#414149',
-    borderRadius: 19,
-    backgroundColor: 'rgba(17, 17, 20, 0.92)',
-  },
-  serviceIconContainer: {
-    width: 57,
-    height: 57,
-    borderRadius: 16,
+  providerIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 17,
     borderWidth: 1,
     borderColor: '#33333A',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#111114',
   },
-  serviceActionText: {
+  providerCardCopy: {
+    flex: 1,
+    marginLeft: 18,
+  },
+  providerCardTitle: {
+    color: '#FFFFFF',
+    fontSize: 19,
+    fontWeight: '700',
+    marginBottom: 5,
+  },
+  providerCardText: {
+    color: '#9C9CA5',
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  profileAction: {
+    minHeight: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#414149',
+    borderRadius: 19,
+    backgroundColor: 'rgba(17, 17, 20, 0.92)',
+  },
+  profileActionText: {
     flex: 1,
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
-    marginLeft: 18,
+    marginLeft: 17,
   },
-  previousSection: {
+  servicesSection: {
     marginTop: 48,
   },
-  previousTitle: {
+  servicesTitle: {
     color: '#FFFFFF',
     fontSize: 25,
     fontWeight: '800',
     marginBottom: 8,
   },
-  previousEmpty: {
+  servicesEmpty: {
     color: '#8C8C96',
     fontSize: 17,
   },
@@ -566,7 +520,7 @@ const styles = StyleSheet.create({
     minHeight: 103,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 24,
     paddingTop: 13,
     paddingBottom: 13,
     borderTopWidth: 1,

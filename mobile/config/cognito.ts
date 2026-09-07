@@ -7,7 +7,13 @@ export const cognitoConfig = {
   domain:
     'https://us-east-1b9eirbvpw.auth.us-east-1.amazoncognito.com',
   redirectUri: 'fareshare://callback',
-  scopes: ['openid', 'email', 'phone'],
+  scopes: [
+    'openid',
+    'email',
+    'phone',
+    'profile',
+    'aws.cognito.signin.user.admin',
+  ],
 } as const;
 
 export const cognitoAuthDiscovery = {
