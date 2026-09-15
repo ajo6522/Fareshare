@@ -104,7 +104,14 @@ export async function uploadImageToS3(
     body: imageBlob,
   });
 
-  if (!uploadResponse.ok) {
-    throw new Error('FareShare could not upload the selected image.');
-  }
+if (!uploadResponse.ok) {
+  const errorText = await uploadResponse.text();
+  const s3ErrorCode =
+    errorText.match(/<Code>(.*?)<\/Code>/)?.[1] ?? 'UnknownS3Error';
+
+  throw new Error(
+    `S3 upload failed: ${uploadResponse.status} ${s3ErrorCode}`
+  );
+}
+
 }

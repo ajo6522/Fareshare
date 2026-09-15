@@ -87,6 +87,8 @@ export default function AppNavigator() {
           component={ServiceResultsScreen}
           options={{ headerShown: false }}
         />
+        
+
 
         <Stack.Screen name="CreateRide" component={CreateRideScreen} />
         <Stack.Screen
@@ -95,7 +97,11 @@ export default function AppNavigator() {
         />
         <Stack.Screen name="RideDetails" component={RideDetailsScreen} />
         <Stack.Screen name="RideRequests" component={RideRequestsScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
+        <Stack.Screen
+  name="Profile"
+  component={ProfileScreen}
+  options={{ headerShown: false }}
+/>
       </Stack.Navigator>
     </NavigationContainer>
   );

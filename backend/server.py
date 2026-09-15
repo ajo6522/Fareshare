@@ -22,7 +22,7 @@ from jwt.exceptions import PyJWKClientError, PyJWTError
 from pydantic import BaseModel, ConfigDict, Field
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-
+from botocore.config import Config
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -283,9 +283,13 @@ def configure_storage() -> None:
     if not S3_BUCKET_NAME:
         raise RuntimeError("S3_BUCKET_NAME environment variable is required")
 
-    s3_client = boto3.client(
+        s3_client = boto3.client(
         "s3",
         region_name=AWS_REGION,
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+        ),
     )
     logger.info("Configured private S3 upload storage")
 
