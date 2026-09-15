@@ -283,7 +283,7 @@ def configure_storage() -> None:
     if not S3_BUCKET_NAME:
         raise RuntimeError("S3_BUCKET_NAME environment variable is required")
 
-        s3_client = boto3.client(
+    s3_client = boto3.client(
         "s3",
         region_name=AWS_REGION,
         config=Config(
