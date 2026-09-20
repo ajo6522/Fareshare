@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,11 +12,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import type { RootStackParamList } from '../navigation/app-navigator';
 import {
   createUploadUrl,
+  getProfileImage,
   uploadImageToS3,
   type ImageContentType,
 } from '../services/api-client';
@@ -75,10 +77,49 @@ export default function ProfileScreen({ navigation }: Props) {
   const [uploadedObjectKey, setUploadedObjectKey] = useState<string | null>(
     null
   );
+  const [isLoadingImage, setIsLoadingImage] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const isBusy = isUploading || isLoggingOut;
+  const isBusy = isLoadingImage || isUploading || isLoggingOut;
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      async function loadProfileImage() {
+        setIsLoadingImage(true);
+
+        try {
+          const profileImage = await getProfileImage();
+
+          if (isActive) {
+            setProfileImageUri(profileImage.imageUrl);
+            setUploadedObjectKey(profileImage.objectKey);
+          }
+        } catch (error) {
+          if (isActive) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : 'FareShare could not load your profile image.';
+
+            Alert.alert('Unable to load profile image', message);
+          }
+        } finally {
+          if (isActive) {
+            setIsLoadingImage(false);
+          }
+        }
+      }
+
+      void loadProfileImage();
+
+      return () => {
+        isActive = false;
+      };
+    }, [])
+  );
 
   async function selectAndUploadProfileImage() {
     const permission =
@@ -181,7 +222,9 @@ export default function ProfileScreen({ navigation }: Props) {
 
         <View style={styles.card}>
           <View style={styles.imageContainer}>
-            {profileImageUri ? (
+            {isLoadingImage ? (
+              <ActivityIndicator color="#C66BFF" />
+            ) : profileImageUri ? (
               <Image
                 source={{ uri: profileImageUri }}
                 style={styles.profileImage}

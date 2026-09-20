@@ -15,6 +15,12 @@ export type UploadUrlResponse = {
   expiresIn: number;
 };
 
+export type ProfileImageResponse = {
+  objectKey: string | null;
+  imageUrl: string | null;
+  expiresIn: number;
+};
+
 function getApiBaseUrl() {
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -82,6 +88,10 @@ export function createUploadUrl(
     method: 'POST',
     body: JSON.stringify({ uploadType, contentType }),
   });
+}
+
+export function getProfileImage() {
+  return apiRequest<ProfileImageResponse>('/profile/image');
 }
 
 export async function uploadImageToS3(
