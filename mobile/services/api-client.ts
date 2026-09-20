@@ -95,12 +95,7 @@ export async function uploadImageToS3(
     throw new Error('FareShare could not read the selected image.');
   }
 
-  const originalBlob = await imageResponse.blob();
-const imageBlob = originalBlob.slice(
-  0,
-  originalBlob.size,
-  contentType
-);
+  const imageBlob = await imageResponse.blob();
   const uploadResponse = await fetch(uploadUrl, {
     method: 'PUT',
     headers: {
@@ -110,26 +105,6 @@ const imageBlob = originalBlob.slice(
   });
 
   if (!uploadResponse.ok) {
-    const errorText = await uploadResponse.text();
-
-    const s3Code =
-      errorText.match(/<Code>(.*?)<\/Code>/)?.[1] ?? 'Unknown';
-
-    const canonicalRequest = (
-      errorText.match(
-        /<CanonicalRequest>([\s\S]*?)<\/CanonicalRequest>/
-      )?.[1] ?? ''
-    ).replace(/&#xA;|&#10;/gi, '\n');
-
-    const receivedType = canonicalRequest.match(
-      /(?:^|\n)content-type:([^\r\n]*)/i
-    )?.[1]?.trim();
-
-    throw new Error(
-      `S3 upload failed: ${uploadResponse.status} ${s3Code}\n` +
-      `Expected type: ${contentType}\n` +
-      `Blob type: ${imageBlob.type || '(empty)'}\n` +
-      `S3 received type: ${receivedType || '(not provided)'}`
-    );
+    throw new Error('FareShare could not upload the selected image.');
   }
 }
