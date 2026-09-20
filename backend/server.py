@@ -89,6 +89,23 @@ class ProfileImageResponse(BaseModel):
     expires_in: int = Field(alias="expiresIn")
 
 
+class BusinessMembershipResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    company_id: int = Field(alias="companyId")
+    company_name: str = Field(alias="companyName")
+    company_slug: str = Field(alias="companySlug")
+    role: str
+    approval_status: str = Field(alias="approvalStatus")
+
+
+class BusinessAccessResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    has_business_access: bool = Field(alias="hasBusinessAccess")
+    memberships: list[BusinessMembershipResponse]
+
+
 class RideCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
 
@@ -468,6 +485,70 @@ def get_profile_image_endpoint(
         object_key=object_key,
         image_url=image_url,
         expires_in=S3_DOWNLOAD_URL_EXPIRATION_SECONDS,
+    )
+
+
+@app.get(
+    "/profile/business-access",
+    response_model=BusinessAccessResponse,
+)
+def get_business_access_endpoint(
+    claims: dict = Depends(require_access_token),
+):
+    try:
+        with get_pool().connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        u.user_id,
+                        c.company_id,
+                        c.name AS company_name,
+                        c.slug AS company_slug,
+                        c.approval_status,
+                        cm.role
+                    FROM public.users AS u
+                    LEFT JOIN public.company_members AS cm
+                        ON cm.user_id = u.user_id
+                    LEFT JOIN public.companies AS c
+                        ON c.company_id = cm.company_id
+                    WHERE u.cognito_sub = %s::uuid
+                    ORDER BY cm.company_member_id ASC
+                    """,
+                    (claims["sub"],),
+                )
+                rows = cursor.fetchall()
+    except psycopg.Error:
+        logger.exception(
+            "Could not load business access for Cognito user %s",
+            claims["sub"],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not load your business access",
+        ) from None
+
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile was not found",
+        )
+
+    memberships = [
+        BusinessMembershipResponse(
+            company_id=row["company_id"],
+            company_name=row["company_name"],
+            company_slug=row["company_slug"],
+            role=row["role"],
+            approval_status=row["approval_status"],
+        )
+        for row in rows
+        if row["company_id"] is not None
+    ]
+
+    return BusinessAccessResponse(
+        has_business_access=bool(memberships),
+        memberships=memberships,
     )
 
 
