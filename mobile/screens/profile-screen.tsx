@@ -18,6 +18,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/app-navigator';
 import {
   createUploadUrl,
+  getBusinessAccess,
   getProfileImage,
   uploadImageToS3,
   type ImageContentType,
@@ -78,10 +79,16 @@ export default function ProfileScreen({ navigation }: Props) {
     null
   );
   const [isLoadingImage, setIsLoadingImage] = useState(true);
+  const [isLoadingBusinessAccess, setIsLoadingBusinessAccess] = useState(true);
+  const [hasBusinessAccess, setHasBusinessAccess] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const isBusy = isLoadingImage || isUploading || isLoggingOut;
+  const isBusy =
+    isLoadingImage ||
+    isLoadingBusinessAccess ||
+    isUploading ||
+    isLoggingOut;
 
   useFocusEffect(
     useCallback(() => {
@@ -113,7 +120,33 @@ export default function ProfileScreen({ navigation }: Props) {
         }
       }
 
+      async function loadBusinessAccess() {
+        setIsLoadingBusinessAccess(true);
+
+        try {
+          const businessAccess = await getBusinessAccess();
+
+          if (isActive) {
+            setHasBusinessAccess(businessAccess.hasBusinessAccess);
+          }
+        } catch (error) {
+          if (isActive) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : 'FareShare could not load your business access.';
+
+            Alert.alert('Unable to load business access', message);
+          }
+        } finally {
+          if (isActive) {
+            setIsLoadingBusinessAccess(false);
+          }
+        }
+      }
+
       void loadProfileImage();
+      void loadBusinessAccess();
 
       return () => {
         isActive = false;
@@ -271,6 +304,55 @@ export default function ProfileScreen({ navigation }: Props) {
               <Text style={styles.uploadedText}>Uploaded securely</Text>
             </View>
           ) : null}
+        </View>
+
+        <View style={styles.businessCard}>
+          <View style={styles.businessHeading}>
+            <View style={styles.businessIcon}>
+              <Ionicons name="briefcase-outline" size={24} color="#C66BFF" />
+            </View>
+
+            <View style={styles.businessCopy}>
+              <Text style={styles.accountTitle}>Business access</Text>
+              <Text style={styles.accountDescription}>
+                {hasBusinessAccess
+                  ? 'Open your business dashboard and manage your services.'
+                  : 'Create a business profile and choose the services you provide.'}
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            disabled={isBusy}
+            onPress={() => {
+              if (hasBusinessAccess) {
+                navigation.navigate('ProviderHome');
+              } else {
+                navigation.navigate('BusinessOnboarding');
+              }
+            }}
+            style={({ pressed }) => [
+              styles.businessButton,
+              (pressed || isBusy) && styles.buttonDisabled,
+            ]}
+          >
+            {isLoadingBusinessAccess ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <View style={styles.buttonContent}>
+                <Ionicons
+                  name={hasBusinessAccess ? 'briefcase' : 'log-in-outline'}
+                  size={20}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.primaryButtonText}>
+                  {hasBusinessAccess
+                    ? 'Open Business Dashboard'
+                    : 'Log in as a Business'}
+                </Text>
+              </View>
+            )}
+          </Pressable>
         </View>
 
         <View style={styles.accountCard}>
@@ -439,6 +521,37 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 16,
     padding: 20,
+  },
+  businessCard: {
+    backgroundColor: 'rgba(17, 17, 20, 0.94)',
+    borderColor: '#3D2B49',
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 16,
+    padding: 20,
+  },
+  businessHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    marginBottom: 17,
+  },
+  businessIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    backgroundColor: '#17111C',
+    borderColor: '#3D2B49',
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+  },
+  businessCopy: { flex: 1, marginLeft: 13 },
+  businessButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    backgroundColor: '#A72FFF',
+    borderRadius: 14,
+    justifyContent: 'center',
   },
   accountCopy: {
     marginBottom: 16,

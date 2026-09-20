@@ -15,7 +15,10 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import type { RootStackParamList } from '../navigation/app-navigator';
 import { getCognitoDisplayName } from '../services/cognito-profile';
-import { apiRequest } from '../services/api-client';
+import {
+  apiRequest,
+  getBusinessAccess,
+} from '../services/api-client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -32,6 +35,7 @@ const CHECKER_TILES = Array.from({ length: 160 });
 
 export default function HomeScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [hasBusinessAccess, setHasBusinessAccess] = useState(false);
   const [sessionStatus, setSessionStatus] =
     useState<SessionStatus>('loading');
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -45,11 +49,15 @@ export default function HomeScreen({ navigation }: Props) {
       setSessionError(null);
 
       try {
-        await apiRequest<AuthenticatedSession>('/auth/me');
-        const cognitoDisplayName = await getCognitoDisplayName();
+        const [, cognitoDisplayName, businessAccess] = await Promise.all([
+          apiRequest<AuthenticatedSession>('/auth/me'),
+          getCognitoDisplayName(),
+          getBusinessAccess(),
+        ]);
 
         if (isMounted) {
           setDisplayName(cognitoDisplayName);
+          setHasBusinessAccess(businessAccess.hasBusinessAccess);
           setSessionStatus('ready');
         }
       } catch (error) {
@@ -264,6 +272,14 @@ export default function HomeScreen({ navigation }: Props) {
           icon="chatbubble-ellipses-outline"
           label="Messages"
         />
+
+        {hasBusinessAccess ? (
+          <NavItem
+            icon="briefcase-outline"
+            label="Business"
+            onPress={() => navigation.navigate('ProviderHome')}
+          />
+        ) : null}
 
         <NavItem
           icon="person-outline"

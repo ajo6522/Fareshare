@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
@@ -106,6 +107,46 @@ class BusinessAccessResponse(BaseModel):
     memberships: list[BusinessMembershipResponse]
 
 
+SupportedServiceType = Literal[
+    "airport_shuttle",
+    "local_transportation",
+    "cleaning_services",
+    "junk_removal",
+    "landscaping",
+]
+
+
+class BusinessOnboardingRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    company_name: str = Field(alias="companyName", min_length=2, max_length=150)
+    description: str | None = Field(default=None, max_length=2000)
+    city: str | None = Field(default=None, max_length=100)
+    state_region: str | None = Field(
+        default=None,
+        alias="stateRegion",
+        max_length=100,
+    )
+    postal_code: str | None = Field(
+        default=None,
+        alias="postalCode",
+        max_length=10,
+    )
+    service_types: list[SupportedServiceType] = Field(
+        alias="serviceTypes",
+        min_length=1,
+        max_length=5,
+    )
+
+
+class BusinessOnboardingResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    has_business_access: bool = Field(alias="hasBusinessAccess")
+    membership: BusinessMembershipResponse
+    service_types: list[SupportedServiceType] = Field(alias="serviceTypes")
+
+
 class RideCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
 
@@ -160,6 +201,29 @@ UPLOAD_FILE_EXTENSIONS = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
+}
+
+SUPPORTED_BUSINESS_SERVICES = {
+    "airport_shuttle": {
+        "name": "Airport shuttle",
+        "description": "Transportation to and from the airport",
+    },
+    "local_transportation": {
+        "name": "Local transportation",
+        "description": "Local rides and scheduled transportation",
+    },
+    "cleaning_services": {
+        "name": "Cleaning services",
+        "description": "Residential and commercial cleaning",
+    },
+    "junk_removal": {
+        "name": "Junk removal",
+        "description": "Hauling and unwanted-item removal",
+    },
+    "landscaping": {
+        "name": "Landscaping",
+        "description": "Lawn care and outdoor maintenance",
+    },
 }
 
 
@@ -549,6 +613,149 @@ def get_business_access_endpoint(
     return BusinessAccessResponse(
         has_business_access=bool(memberships),
         memberships=memberships,
+    )
+
+
+@app.post(
+    "/businesses/onboarding",
+    response_model=BusinessOnboardingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_business_onboarding_endpoint(
+    onboarding: BusinessOnboardingRequest,
+    claims: dict = Depends(require_access_token),
+):
+    service_types = list(dict.fromkeys(onboarding.service_types))
+    slug_base = re.sub(r"[^a-z0-9]+", "-", onboarding.company_name.lower())
+    slug_base = slug_base.strip("-")[:130] or "business"
+    company_slug = f"{slug_base}-{uuid4().hex[:8]}"
+    business_category = (
+        service_types[0] if len(service_types) == 1 else "multi_service"
+    )
+
+    try:
+        with get_pool().connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT user_id
+                    FROM public.users
+                    WHERE cognito_sub = %s::uuid
+                    FOR UPDATE
+                    """,
+                    (claims["sub"],),
+                )
+                user = cursor.fetchone()
+
+                if user is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="User profile was not found",
+                    )
+
+                cursor.execute(
+                    """
+                    SELECT company_id
+                    FROM public.company_members
+                    WHERE user_id = %s
+                    LIMIT 1
+                    """,
+                    (user["user_id"],),
+                )
+
+                if cursor.fetchone() is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="This account already has business access",
+                    )
+
+                cursor.execute(
+                    """
+                    INSERT INTO public.companies (
+                        name,
+                        slug,
+                        description,
+                        business_category,
+                        city,
+                        state_region,
+                        postal_code
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING company_id, name, slug, approval_status
+                    """,
+                    (
+                        onboarding.company_name,
+                        company_slug,
+                        onboarding.description,
+                        business_category,
+                        onboarding.city,
+                        onboarding.state_region,
+                        onboarding.postal_code,
+                    ),
+                )
+                company = cursor.fetchone()
+
+                cursor.execute(
+                    """
+                    INSERT INTO public.company_members (
+                        company_id,
+                        user_id,
+                        role
+                    )
+                    VALUES (%s, %s, 'OWNER')
+                    RETURNING role
+                    """,
+                    (company["company_id"], user["user_id"]),
+                )
+                membership = cursor.fetchone()
+
+                for service_type in service_types:
+                    service = SUPPORTED_BUSINESS_SERVICES[service_type]
+                    cursor.execute(
+                        """
+                        INSERT INTO public.services (
+                            company_id,
+                            driver_profile_id,
+                            service_name,
+                            description,
+                            pricing_type,
+                            is_active
+                        )
+                        VALUES (%s, NULL, %s, %s, 'QUOTE', FALSE)
+                        """,
+                        (
+                            company["company_id"],
+                            service["name"],
+                            service["description"],
+                        ),
+                    )
+    except HTTPException:
+        raise
+    except psycopg.Error:
+        logger.exception(
+            "Could not create business access for Cognito user %s",
+            claims["sub"],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not create your business account",
+        ) from None
+
+    logger.info(
+        "Created company %s and OWNER access for Cognito user %s",
+        company["company_id"],
+        claims["sub"],
+    )
+    return BusinessOnboardingResponse(
+        has_business_access=True,
+        membership=BusinessMembershipResponse(
+            company_id=company["company_id"],
+            company_name=company["name"],
+            company_slug=company["slug"],
+            role=membership["role"],
+            approval_status=company["approval_status"],
+        ),
+        service_types=service_types,
     )
 
 

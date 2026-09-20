@@ -21,6 +21,41 @@ export type ProfileImageResponse = {
   expiresIn: number;
 };
 
+export type BusinessMembership = {
+  companyId: number;
+  companyName: string;
+  companySlug: string;
+  role: string;
+  approvalStatus: string;
+};
+
+export type BusinessAccessResponse = {
+  hasBusinessAccess: boolean;
+  memberships: BusinessMembership[];
+};
+
+export type BusinessServiceType =
+  | 'airport_shuttle'
+  | 'local_transportation'
+  | 'cleaning_services'
+  | 'junk_removal'
+  | 'landscaping';
+
+export type BusinessOnboardingRequest = {
+  companyName: string;
+  description: string | null;
+  city: string | null;
+  stateRegion: string | null;
+  postalCode: string | null;
+  serviceTypes: BusinessServiceType[];
+};
+
+export type BusinessOnboardingResponse = {
+  hasBusinessAccess: true;
+  membership: BusinessMembership;
+  serviceTypes: BusinessServiceType[];
+};
+
 function getApiBaseUrl() {
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -92,6 +127,19 @@ export function createUploadUrl(
 
 export function getProfileImage() {
   return apiRequest<ProfileImageResponse>('/profile/image');
+}
+
+export function getBusinessAccess() {
+  return apiRequest<BusinessAccessResponse>('/profile/business-access');
+}
+
+export function createBusinessAccount(
+  onboarding: BusinessOnboardingRequest
+) {
+  return apiRequest<BusinessOnboardingResponse>('/businesses/onboarding', {
+    method: 'POST',
+    body: JSON.stringify(onboarding),
+  });
 }
 
 export async function uploadImageToS3(

@@ -13,6 +13,7 @@ import AvailableRidesScreen from '../screens/available-rides-screen';
 import RideDetailsScreen from '../screens/ride-details-screen';
 import RideRequestsScreen from '../screens/ride-requests-screen';
 import ProfileScreen from '../screens/profile-screen';
+import BusinessOnboardingScreen from '../screens/business-onboarding-screen';
 
 export type ServiceType =
   | 'airport_shuttle'
@@ -38,6 +39,7 @@ export type RootStackParamList = {
   RideDetails: undefined;
   RideRequests: undefined;
   Profile: undefined;
+  BusinessOnboarding: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -87,8 +89,6 @@ export default function AppNavigator() {
           component={ServiceResultsScreen}
           options={{ headerShown: false }}
         />
-        
-
 
         <Stack.Screen name="CreateRide" component={CreateRideScreen} />
         <Stack.Screen
@@ -98,10 +98,16 @@ export default function AppNavigator() {
         <Stack.Screen name="RideDetails" component={RideDetailsScreen} />
         <Stack.Screen name="RideRequests" component={RideRequestsScreen} />
         <Stack.Screen
-  name="Profile"
-  component={ProfileScreen}
-  options={{ headerShown: false }}
-/>
+          name="Profile"
+          component={ProfileScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="BusinessOnboarding"
+          component={BusinessOnboardingScreen}
+          options={{ headerShown: false }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
