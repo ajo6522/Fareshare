@@ -22,7 +22,7 @@ from jwt.exceptions import PyJWKClientError, PyJWTError
 from pydantic import BaseModel, ConfigDict, Field
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from botocore.config import Config
+
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -43,6 +43,7 @@ COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
 COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 S3_UPLOAD_URL_EXPIRATION_SECONDS = 300
+S3_DOWNLOAD_URL_EXPIRATION_SECONDS = 300
 RDS_CA_BUNDLE = os.getenv(
     "RDS_CA_BUNDLE",
     str(Path(__file__).with_name("global-bundle.pem")),
@@ -77,6 +78,14 @@ class UploadUrlResponse(BaseModel):
 
     upload_url: str = Field(alias="uploadUrl")
     object_key: str = Field(alias="objectKey")
+    expires_in: int = Field(alias="expiresIn")
+
+
+class ProfileImageResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    object_key: str | None = Field(default=None, alias="objectKey")
+    image_url: str | None = Field(default=None, alias="imageUrl")
     expires_in: int = Field(alias="expiresIn")
 
 
@@ -286,10 +295,6 @@ def configure_storage() -> None:
     s3_client = boto3.client(
         "s3",
         region_name=AWS_REGION,
-        config=Config(
-            signature_version="s3v4",
-            s3={"addressing_style": "virtual"},
-        ),
     )
     logger.info("Configured private S3 upload storage")
 
@@ -399,6 +404,70 @@ def create_upload_endpoint(
         upload_url=upload_url,
         object_key=object_key,
         expires_in=S3_UPLOAD_URL_EXPIRATION_SECONDS,
+    )
+
+
+@app.get("/profile/image", response_model=ProfileImageResponse)
+def get_profile_image_endpoint(
+    claims: dict = Depends(require_access_token),
+):
+    try:
+        with get_pool().connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT profile_image_key
+                    FROM public.users
+                    WHERE cognito_sub = %s::uuid
+                    """,
+                    (claims["sub"],),
+                )
+                user = cursor.fetchone()
+    except psycopg.Error:
+        logger.exception("Could not load the authenticated user profile")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not load your profile",
+        ) from None
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile was not found",
+        )
+
+    object_key = user["profile_image_key"]
+
+    if not object_key:
+        return ProfileImageResponse(
+            object_key=None,
+            image_url=None,
+            expires_in=0,
+        )
+
+    try:
+        image_url = get_s3_client().generate_presigned_url(
+            ClientMethod="get_object",
+            Params={
+                "Bucket": S3_BUCKET_NAME,
+                "Key": object_key,
+            },
+            ExpiresIn=S3_DOWNLOAD_URL_EXPIRATION_SECONDS,
+        )
+    except (BotoCoreError, ClientError):
+        logger.exception(
+            "Could not generate a profile-image URL for Cognito user %s",
+            claims["sub"],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not load your profile image",
+        ) from None
+
+    return ProfileImageResponse(
+        object_key=object_key,
+        image_url=image_url,
+        expires_in=S3_DOWNLOAD_URL_EXPIRATION_SECONDS,
     )
 
 
