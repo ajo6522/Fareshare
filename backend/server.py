@@ -380,7 +380,7 @@ def create_upload_endpoint(
             Params={
                 "Bucket": S3_BUCKET_NAME,
                 "Key": object_key,
-                "ContentType": upload.content_type,
+            
             },
             ExpiresIn=S3_UPLOAD_URL_EXPIRATION_SECONDS,
             HttpMethod="PUT",

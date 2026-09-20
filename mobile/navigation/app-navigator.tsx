@@ -12,7 +12,7 @@ import CreateRideScreen from '../screens/create-ride-screen';
 import AvailableRidesScreen from '../screens/available-rides-screen';
 import RideDetailsScreen from '../screens/ride-details-screen';
 import RideRequestsScreen from '../screens/ride-requests-screen';
-import { ProfileScreen } from '../screens/profile-screen';
+import ProfileScreen from '../screens/profile-screen';
 
 export type ServiceType =
   | 'airport_shuttle'
