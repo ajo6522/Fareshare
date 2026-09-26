@@ -30,7 +30,14 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger("fareshare-api")
+ACCOUNT_DELETION_FUNCTION = os.getenv(
+    "ACCOUNT_DELETION_FUNCTION",
+    "fareshare-account-deletion",
+)
 
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+lambda_client = boto3.client("lambda", region_name=AWS_REGION)
+cognito_client = boto3.client("cognito-idp", region_name=AWS_REGION)
 
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 DB_HOST = os.getenv(
@@ -443,7 +450,113 @@ def get_authenticated_user(
         username=username if isinstance(username, str) else None,
         scopes=scope.split() if isinstance(scope, str) else [],
     )
+@app.delete("/account")
+def delete_account(
+    claims: dict = Depends(require_access_token),
+):
+    cognito_sub = claims["sub"]
 
+    # Cognito access tokens normally contain the username.
+    cognito_username = claims.get("username")
+
+    if not cognito_username:
+        logger.error(
+            "Authenticated Cognito user %s has no username claim",
+            cognito_sub,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="FareShare could not identify your Cognito account",
+        )
+
+    # STEP 1:
+    # Ask the private Lambda to anonymize the user's RDS record.
+    try:
+        response = lambda_client.invoke(
+            FunctionName=ACCOUNT_DELETION_FUNCTION,
+            InvocationType="RequestResponse",
+            Payload=json.dumps({
+                "cognito_sub": cognito_sub
+            }).encode("utf-8"),
+        )
+
+        payload = json.loads(
+            response["Payload"].read().decode("utf-8")
+        )
+
+    except (BotoCoreError, ClientError, ValueError, TypeError):
+        logger.exception(
+            "Could not invoke account-deletion Lambda for %s",
+            cognito_sub,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not delete your account",
+        ) from None
+
+    # Lambda itself crashed.
+    if response.get("FunctionError"):
+        logger.error(
+            "Account-deletion Lambda failed for %s: %s",
+            cognito_sub,
+            payload,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not delete your account",
+        )
+
+    lambda_status = payload.get("statusCode")
+
+    if lambda_status != 200:
+        logger.error(
+            "Account-deletion Lambda returned %s for %s: %s",
+            lambda_status,
+            cognito_sub,
+            payload,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare could not delete your account",
+        )
+
+    # STEP 2:
+    # RDS is anonymized. Now remove the identity from Cognito.
+    try:
+        cognito_client.admin_delete_user(
+            UserPoolId=COGNITO_USER_POOL_ID,
+            Username=cognito_username,
+        )
+
+    except cognito_client.exceptions.UserNotFoundException:
+        # Cognito account is already gone.
+        # Treat this as successful/idempotent deletion.
+        logger.warning(
+            "Cognito user %s was already deleted",
+            cognito_sub,
+        )
+
+    except (BotoCoreError, ClientError):
+        logger.exception(
+            "RDS was anonymized but Cognito deletion failed for %s",
+            cognito_sub,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Your FareShare profile was removed, but account "
+                "deletion could not be completed"
+            ),
+        ) from None
+
+    logger.info(
+        "Deleted FareShare account for Cognito user %s",
+        cognito_sub,
+    )
+
+    return {
+        "message": "Account deleted successfully"
+    }
 
 @app.post("/uploads", response_model=UploadUrlResponse)
 def create_upload_endpoint(
