@@ -128,17 +128,22 @@ class BusinessOnboardingRequest(BaseModel):
 
     company_name: str = Field(alias="companyName", min_length=2, max_length=150)
     description: str | None = Field(default=None, max_length=2000)
-    city: str | None = Field(default=None, max_length=100)
-    state_region: str | None = Field(
-        default=None,
+
+    city: str = Field(min_length=1, max_length=100)
+    state_region: str = Field(
         alias="stateRegion",
+        min_length=1,
         max_length=100,
     )
-    postal_code: str | None = Field(
-        default=None,
+    postal_code: str = Field(
         alias="postalCode",
+        min_length=5,
         max_length=10,
     )
+
+    latitude: float
+    longitude: float
+
     service_types: list[SupportedServiceType] = Field(
         alias="serviceTypes",
         min_length=1,
@@ -838,6 +843,8 @@ def create_business_onboarding_endpoint(
                         city,
                         state_region,
                         postal_code
+                        latitude,
+                        longitude
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING company_id, name, slug, approval_status
@@ -850,6 +857,8 @@ def create_business_onboarding_endpoint(
                         onboarding.city,
                         onboarding.state_region,
                         onboarding.postal_code,
+                        onboarding.latitude,
+                        onboarding.longitude,
                     ),
                 )
                 company = cursor.fetchone()

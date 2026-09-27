@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,16 +13,86 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
 
 import type { RootStackParamList } from '../navigation/app-navigator';
+import { getCurrentFareShareLocation } from '../services/location-service';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ServiceLocation'>;
 
 const CHECKER_TILES = Array.from({ length: 160 });
 
+const LOCATION_KEYS = {
+  latitude: 'fareshare.location.latitude',
+  longitude: 'fareshare.location.longitude',
+  city: 'fareshare.location.city',
+  stateRegion: 'fareshare.location.stateRegion',
+  postalCode: 'fareshare.location.postalCode',
+} as const;
+
 export default function ServiceLocationScreen({ navigation }: Props) {
   const [zipCode, setZipCode] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [detectedArea, setDetectedArea] = useState<string | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+
+  async function useCurrentLocation() {
+    setIsLocating(true);
+    setErrorMessage(null);
+
+    try {
+      const location = await getCurrentFareShareLocation();
+
+      if (!location.postalCode || !/^\d{5}$/.test(location.postalCode)) {
+        throw new Error(
+          'FareShare found your location, but could not determine a 5-digit ZIP code.'
+        );
+      }
+
+      setZipCode(location.postalCode);
+
+      const areaParts = [
+        location.city,
+        location.stateRegion,
+        location.postalCode,
+      ].filter(Boolean);
+
+      setDetectedArea(areaParts.join(', '));
+
+      await Promise.all([
+        SecureStore.setItemAsync(
+          LOCATION_KEYS.latitude,
+          String(location.latitude)
+        ),
+        SecureStore.setItemAsync(
+          LOCATION_KEYS.longitude,
+          String(location.longitude)
+        ),
+        SecureStore.setItemAsync(
+          LOCATION_KEYS.city,
+          location.city ?? ''
+        ),
+        SecureStore.setItemAsync(
+          LOCATION_KEYS.stateRegion,
+          location.stateRegion ?? ''
+        ),
+        SecureStore.setItemAsync(
+          LOCATION_KEYS.postalCode,
+          location.postalCode
+        ),
+      ]);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'FareShare could not determine your current location.';
+
+      setDetectedArea(null);
+      setErrorMessage(message);
+    } finally {
+      setIsLocating(false);
+    }
+  }
 
   function continueToServices() {
     if (!/^\d{5}$/.test(zipCode)) {
@@ -69,6 +140,8 @@ export default function ServiceLocationScreen({ navigation }: Props) {
               maxLength={5}
               onChangeText={(value) => {
                 setZipCode(value.replace(/\D/g, '').slice(0, 5));
+                setDetectedArea(null);
+
                 if (errorMessage) {
                   setErrorMessage(null);
                 }
@@ -80,6 +153,38 @@ export default function ServiceLocationScreen({ navigation }: Props) {
               style={styles.input}
               value={zipCode}
             />
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={isLocating}
+              onPress={() => void useCurrentLocation()}
+              style={({ pressed }) => [
+                styles.locationButton,
+                (pressed || isLocating) && styles.pressedButton,
+              ]}
+            >
+              {isLocating ? (
+                <ActivityIndicator color="#C66BFF" />
+              ) : (
+                <>
+                  <Ionicons name="navigate-outline" size={20} color="#C66BFF" />
+                  <Text style={styles.locationButtonText}>
+                    Use current location
+                  </Text>
+                </>
+              )}
+            </Pressable>
+
+            {detectedArea ? (
+              <View style={styles.detectedArea}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color="#C66BFF"
+                />
+                <Text style={styles.detectedAreaText}>{detectedArea}</Text>
+              </View>
+            ) : null}
 
             {errorMessage ? (
               <Text style={styles.errorText}>{errorMessage}</Text>
@@ -216,6 +321,36 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: '#121215',
     paddingHorizontal: 16,
+  },
+  locationButton: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    borderWidth: 1,
+    borderColor: '#4A245E',
+    borderRadius: 14,
+    backgroundColor: 'rgba(167, 47, 255, 0.08)',
+    marginTop: 14,
+    paddingHorizontal: 16,
+  },
+  locationButtonText: {
+    color: '#C66BFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  detectedArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  detectedAreaText: {
+    color: '#D7B4F5',
+    fontSize: 14,
+    fontWeight: '700',
+    flexShrink: 1,
   },
   errorText: {
     color: '#FF9D9D',

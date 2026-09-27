@@ -22,6 +22,7 @@ import {
   createBusinessAccount,
   type BusinessServiceType,
 } from '../services/api-client';
+import { geocodeBusinessLocation } from '../services/location-service';
 
 type Props = NativeStackScreenProps<
   RootStackParamList,
@@ -84,10 +85,14 @@ export default function BusinessOnboardingScreen({ navigation }: Props) {
   const [selectedServices, setSelectedServices] = useState<
     BusinessServiceType[]
   >([]);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canSubmit =
     companyName.trim().length >= 2 &&
+    city.trim().length > 0 &&
+    stateRegion.trim().length > 0 &&
+    /^\d{5}$/.test(postalCode.trim()) &&
     selectedServices.length > 0 &&
     !isSubmitting;
 
@@ -101,18 +106,30 @@ export default function BusinessOnboardingScreen({ navigation }: Props) {
 
   async function submitBusiness() {
     if (!canSubmit) {
+      if (!/^\d{5}$/.test(postalCode.trim())) {
+        setLocationError('Enter a valid 5-digit ZIP code.');
+      }
       return;
     }
 
     setIsSubmitting(true);
+    setLocationError(null);
 
     try {
+      const coordinates = await geocodeBusinessLocation(
+        city,
+        stateRegion,
+        postalCode
+      );
+
       await createBusinessAccount({
         companyName: companyName.trim(),
         description: optionalValue(description),
-        city: optionalValue(city),
-        stateRegion: optionalValue(stateRegion),
-        postalCode: optionalValue(postalCode),
+        city: city.trim(),
+        stateRegion: stateRegion.trim(),
+        postalCode: postalCode.trim(),
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
         serviceTypes: selectedServices,
       });
 
@@ -214,7 +231,12 @@ export default function BusinessOnboardingScreen({ navigation }: Props) {
                   autoCapitalize="words"
                   editable={!isSubmitting}
                   maxLength={100}
-                  onChangeText={setCity}
+                  onChangeText={(value) => {
+                    setCity(value);
+                    if (locationError) {
+                      setLocationError(null);
+                    }
+                  }}
                   placeholder="City"
                   placeholderTextColor="#6F6F79"
                   style={styles.input}
@@ -228,7 +250,12 @@ export default function BusinessOnboardingScreen({ navigation }: Props) {
                   autoCapitalize="characters"
                   editable={!isSubmitting}
                   maxLength={100}
-                  onChangeText={setStateRegion}
+                  onChangeText={(value) => {
+                    setStateRegion(value);
+                    if (locationError) {
+                      setLocationError(null);
+                    }
+                  }}
                   placeholder="State"
                   placeholderTextColor="#6F6F79"
                   style={styles.input}
@@ -241,13 +268,26 @@ export default function BusinessOnboardingScreen({ navigation }: Props) {
             <TextInput
               editable={!isSubmitting}
               keyboardType="number-pad"
-              maxLength={10}
-              onChangeText={setPostalCode}
+              maxLength={5}
+              onChangeText={(value) => {
+                setPostalCode(value.replace(/\D/g, '').slice(0, 5));
+                if (locationError) {
+                  setLocationError(null);
+                }
+              }}
               placeholder="ZIP code"
               placeholderTextColor="#6F6F79"
               style={styles.input}
               value={postalCode}
             />
+
+            <Text style={styles.locationNote}>
+              FareShare will convert this business location into coordinates for nearby search.
+            </Text>
+
+            {locationError ? (
+              <Text style={styles.locationError}>{locationError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.servicesSection}>
@@ -405,6 +445,18 @@ const styles = StyleSheet.create({
   cityRow: { flexDirection: 'row', gap: 12 },
   cityField: { flex: 1.3 },
   stateField: { flex: 1 },
+  locationNote: {
+    color: '#85858E',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 10,
+  },
+  locationError: {
+    color: '#FF9D9D',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+  },
   servicesSection: { marginTop: 30 },
   serviceList: { gap: 12, marginTop: 17 },
   serviceCard: {

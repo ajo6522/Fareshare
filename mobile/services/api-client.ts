@@ -44,9 +44,11 @@ export type BusinessServiceType =
 export type BusinessOnboardingRequest = {
   companyName: string;
   description: string | null;
-  city: string | null;
-  stateRegion: string | null;
-  postalCode: string | null;
+  city: string;
+  stateRegion: string;
+  postalCode: string;
+  latitude: number;
+  longitude: number;
   serviceTypes: BusinessServiceType[];
 };
 
@@ -142,9 +144,12 @@ export function createBusinessAccount(
   });
 }
 
-export async function deleteAccount(): Promise<void> {
-  await apiRequest<{ message: string }>('/account', {
+export async function deleteAccount(
+  deleteBusiness: boolean = false
+): Promise<void> {
+  await apiRequest<{ message: string; businessDeleted: boolean }>('/account', {
     method: 'DELETE',
+    body: JSON.stringify({ deleteBusiness }),
   });
 }
 

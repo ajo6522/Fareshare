@@ -166,6 +166,10 @@ export default function ProfileScreen({ navigation }: Props) {
 
   const [hasBusinessAccess, setHasBusinessAccess] = useState(false);
 
+  const [isBusinessOwner, setIsBusinessOwner] = useState(false);
+
+  const [deleteBusinessToo, setDeleteBusinessToo] = useState(false);
+
   const [isUploading, setIsUploading] = useState(false);
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -263,6 +267,16 @@ export default function ProfileScreen({ navigation }: Props) {
           if (isActive) {
 
             setHasBusinessAccess(businessAccess.hasBusinessAccess);
+
+            const ownsBusiness = businessAccess.memberships.some(
+              (membership) => membership.role.toUpperCase() === 'OWNER'
+            );
+
+            setIsBusinessOwner(ownsBusiness);
+
+            if (!ownsBusiness) {
+              setDeleteBusinessToo(false);
+            }
 
           }
 
@@ -486,7 +500,7 @@ export default function ProfileScreen({ navigation }: Props) {
     setIsDeletingAccount(true);
 
     try {
-      await deleteAccount();
+      await deleteAccount(deleteBusinessToo);
 
       await Promise.all(
         TOKEN_KEYS.map((key) => SecureStore.deleteItemAsync(key))
@@ -508,9 +522,14 @@ export default function ProfileScreen({ navigation }: Props) {
   }
 
   function confirmAccountDeletion() {
+    const businessWarning =
+      isBusinessOwner && deleteBusinessToo
+        ? ' Your business will also be deleted and its services will be disabled.'
+        : '';
+
     Alert.alert(
       'Delete your FareShare account?',
-      'This permanently deletes your sign-in account and removes your personal information from FareShare. This cannot be undone.',
+      `This permanently deletes your sign-in account and removes your personal information from FareShare.${businessWarning} This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -821,6 +840,34 @@ export default function ProfileScreen({ navigation }: Props) {
               Permanently delete your FareShare account and remove your personal information.
             </Text>
           </View>
+
+          {isBusinessOwner ? (
+            <Pressable
+              disabled={isBusy}
+              onPress={() => setDeleteBusinessToo((current) => !current)}
+              style={({ pressed }) => [
+                styles.deleteBusinessOption,
+                pressed && styles.deleteBusinessOptionPressed,
+                isBusy && styles.buttonDisabled,
+              ]}
+            >
+              <Ionicons
+                name={deleteBusinessToo ? 'checkbox' : 'square-outline'}
+                size={24}
+                color={deleteBusinessToo ? '#FF6B6B' : '#A5A5AE'}
+              />
+
+              <View style={styles.deleteBusinessCopy}>
+                <Text style={styles.deleteBusinessTitle}>
+                  Also delete my business
+                </Text>
+                <Text style={styles.deleteBusinessDescription}>
+                  Only business owners can choose this. The business will be
+                  marked deleted and its services will be disabled.
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
 
           <Pressable
             disabled={isBusy}
@@ -1250,6 +1297,39 @@ const styles = StyleSheet.create({
     color: '#FF9D9D',
     fontSize: 18,
     fontWeight: '800',
+  },
+
+  deleteBusinessOption: {
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255, 107, 107, 0.05)',
+    borderColor: '#4A232B',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+    padding: 14,
+  },
+
+  deleteBusinessOptionPressed: {
+    opacity: 0.72,
+  },
+
+  deleteBusinessCopy: {
+    flex: 1,
+  },
+
+  deleteBusinessTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+
+  deleteBusinessDescription: {
+    color: '#9C9CA5',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
   },
 
   deleteButton: {
