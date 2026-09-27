@@ -142,6 +142,12 @@ export function createBusinessAccount(
   });
 }
 
+export async function deleteAccount(): Promise<void> {
+  await apiRequest<{ message: string }>('/account', {
+    method: 'DELETE',
+  });
+}
+
 export async function uploadImageToS3(
   uploadUrl: string,
   imageUri: string,

@@ -187,6 +187,13 @@ class RequestStatusUpdate(BaseModel):
 
     request_status: str = Field(alias="requestStatus", min_length=1)
 
+class AccountDeletionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    delete_business: bool = Field(
+        default=False,
+        alias="deleteBusiness",
+    )
 
 VALID_REQUEST_STATUSES = {
     "PENDING",
@@ -452,11 +459,10 @@ def get_authenticated_user(
     )
 @app.delete("/account")
 def delete_account(
+    deletion: AccountDeletionRequest,
     claims: dict = Depends(require_access_token),
 ):
     cognito_sub = claims["sub"]
-
-    # Cognito access tokens normally contain the username.
     cognito_username = claims.get("username")
 
     if not cognito_username:
@@ -464,20 +470,26 @@ def delete_account(
             "Authenticated Cognito user %s has no username claim",
             cognito_sub,
         )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="FareShare could not identify your Cognito account",
         )
 
-    # STEP 1:
-    # Ask the private Lambda to anonymize the user's RDS record.
+    # --------------------------------------------------
+    # 1. Invoke the RDS account-deletion Lambda
+    # --------------------------------------------------
+
     try:
         response = lambda_client.invoke(
             FunctionName=ACCOUNT_DELETION_FUNCTION,
             InvocationType="RequestResponse",
-            Payload=json.dumps({
-                "cognito_sub": cognito_sub
-            }).encode("utf-8"),
+            Payload=json.dumps(
+                {
+                    "cognito_sub": cognito_sub,
+                    "delete_business": deletion.delete_business,
+                }
+            ).encode("utf-8"),
         )
 
         payload = json.loads(
@@ -489,24 +501,52 @@ def delete_account(
             "Could not invoke account-deletion Lambda for %s",
             cognito_sub,
         )
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="FareShare could not delete your account",
         ) from None
 
-    # Lambda itself crashed.
+    # --------------------------------------------------
+    # 2. Detect Lambda execution failure
+    # --------------------------------------------------
+
     if response.get("FunctionError"):
         logger.error(
             "Account-deletion Lambda failed for %s: %s",
             cognito_sub,
             payload,
         )
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="FareShare could not delete your account",
         )
 
     lambda_status = payload.get("statusCode")
+    lambda_body = payload.get(
+        "body",
+        "FareShare could not delete your account",
+    )
+
+    # --------------------------------------------------
+    # 3. Sole-owner protection
+    # --------------------------------------------------
+
+    if lambda_status == 409:
+        logger.info(
+            "Account deletion blocked for sole owner %s",
+            cognito_sub,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=lambda_body,
+        )
+
+    # --------------------------------------------------
+    # 4. Handle any other Lambda failure
+    # --------------------------------------------------
 
     if lambda_status != 200:
         logger.error(
@@ -515,13 +555,17 @@ def delete_account(
             cognito_sub,
             payload,
         )
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="FareShare could not delete your account",
+            detail=lambda_body,
         )
 
-    # STEP 2:
-    # RDS is anonymized. Now remove the identity from Cognito.
+    # --------------------------------------------------
+    # 5. RDS cleanup succeeded.
+    #    Now delete Cognito identity.
+    # --------------------------------------------------
+
     try:
         cognito_client.admin_delete_user(
             UserPoolId=COGNITO_USER_POOL_ID,
@@ -529,8 +573,6 @@ def delete_account(
         )
 
     except cognito_client.exceptions.UserNotFoundException:
-        # Cognito account is already gone.
-        # Treat this as successful/idempotent deletion.
         logger.warning(
             "Cognito user %s was already deleted",
             cognito_sub,
@@ -538,24 +580,28 @@ def delete_account(
 
     except (BotoCoreError, ClientError):
         logger.exception(
-            "RDS was anonymized but Cognito deletion failed for %s",
+            "RDS cleanup succeeded but Cognito deletion failed for %s",
             cognito_sub,
         )
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                "Your FareShare profile was removed, but account "
-                "deletion could not be completed"
+                "Your FareShare profile was removed, but "
+                "Cognito account deletion could not be completed"
             ),
         ) from None
 
     logger.info(
-        "Deleted FareShare account for Cognito user %s",
+        "Deleted FareShare account for Cognito user %s. "
+        "delete_business=%s",
         cognito_sub,
+        deletion.delete_business,
     )
 
     return {
-        "message": "Account deleted successfully"
+        "message": "Account deleted successfully",
+        "businessDeleted": deletion.delete_business,
     }
 
 @app.post("/uploads", response_model=UploadUrlResponse)
