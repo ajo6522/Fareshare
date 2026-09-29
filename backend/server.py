@@ -459,6 +459,7 @@ def get_pool() -> ConnectionPool:
 async def lifespan(_: FastAPI):
     configure_authentication()
     configure_storage()
+    configure_opensearch()
     connect_to_database()
 
     try:
@@ -467,14 +468,6 @@ async def lifespan(_: FastAPI):
         if pool is not None:
             pool.close()
             logger.info("PostgreSQL connection pool closed")
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    configure_authentication()
-    configure_storage()
-    configure_opensearch()
-    connect_to_database()
-
 
 
 app = FastAPI(
