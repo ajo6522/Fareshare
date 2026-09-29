@@ -12,6 +12,7 @@ from uuid import uuid4
 import boto3
 import jwt
 import psycopg
+from opensearchpy import AWSV4SignerAuth, OpenSearch, RequestsHttpConnection
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.encoders import jsonable_encoder
@@ -34,7 +35,7 @@ ACCOUNT_DELETION_FUNCTION = os.getenv(
     "ACCOUNT_DELETION_FUNCTION",
     "fareshare-account-deletion",
 )
-
+OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 lambda_client = boto3.client("lambda", region_name=AWS_REGION)
 cognito_client = boto3.client("cognito-idp", region_name=AWS_REGION)
@@ -62,7 +63,7 @@ cognito_issuer: str | None = None
 cognito_jwks_client: PyJWKClient | None = None
 s3_client = None
 bearer_scheme = HTTPBearer(auto_error=False)
-
+opensearch_client: OpenSearch | None = None
 
 class AuthenticatedUser(BaseModel):
     sub: str
@@ -399,6 +400,47 @@ def configure_storage() -> None:
     logger.info("Configured private S3 upload storage")
 
 
+
+
+def configure_opensearch() -> None:
+    global opensearch_client
+
+    if not OPENSEARCH_HOST:
+        raise RuntimeError("OPENSEARCH_HOST environment variable is required")
+
+    credentials = boto3.Session().get_credentials()
+
+    if credentials is None:
+        raise RuntimeError("AWS credentials are unavailable for OpenSearch")
+
+    auth = AWSV4SignerAuth(
+        credentials,
+        AWS_REGION,
+        "es",
+    )
+
+    opensearch_client = OpenSearch(
+        hosts=[
+            {
+                "host": OPENSEARCH_HOST,
+                "port": 443,
+            }
+        ],
+        http_auth=auth,
+        use_ssl=True,
+        verify_certs=True,
+        connection_class=RequestsHttpConnection,
+    )
+
+    logger.info("Configured OpenSearch client")
+
+def get_opensearch_client() -> OpenSearch:
+    if opensearch_client is None:
+        raise RuntimeError("OpenSearch client is not initialized")
+
+    return opensearch_client
+
+
 def get_s3_client():
     if s3_client is None:
         raise RuntimeError("S3 client is not initialized")
@@ -425,6 +467,14 @@ async def lifespan(_: FastAPI):
         if pool is not None:
             pool.close()
             logger.info("PostgreSQL connection pool closed")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    configure_authentication()
+    configure_storage()
+    configure_opensearch()
+    connect_to_database()
+
 
 
 app = FastAPI(
