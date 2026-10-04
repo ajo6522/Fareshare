@@ -1000,7 +1000,55 @@ def get_rides():
             status_code=500,
             content={"message": "Internal Server Error"},
         )
+    
+@app.get("/search/businesses")
+def search_businesses(
+    q: str,
+    claims: dict = Depends(require_access_token),
+):
+    query = q.strip()
 
+    if not query:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Search query is required",
+        )
+
+    try:
+        response = get_opensearch_client().search(
+            index="fareshare-businesses",
+            body={
+                "query": {
+                    "multi_match": {
+                        "query": query,
+                        "fields": [
+                            "business_name^2",
+                            "description",
+                            "services",
+                        ],
+                    }
+                }
+            },
+        )
+    except Exception:
+        logger.exception(
+            "OpenSearch business search failed for query %s",
+            query,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FareShare search is temporarily unavailable",
+        ) from None
+
+    results = [
+        hit["_source"]
+        for hit in response["hits"]["hits"]
+    ]
+
+    return {
+        "query": query,
+        "results": results,
+    }
 
 @app.get("/rides/{ride_id}")
 def get_ride(ride_id: int):
