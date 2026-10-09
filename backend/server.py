@@ -890,11 +890,11 @@ def create_business_onboarding_endpoint(
                         business_category,
                         city,
                         state_region,
-                        postal_code
+                        postal_code,
                         latitude,
                         longitude
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING company_id, name, slug, approval_status
                     """,
                     (
