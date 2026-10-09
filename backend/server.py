@@ -50,6 +50,7 @@ DB_NAME = os.getenv("DB_NAME", "fareshare")
 DB_SECRET_ID = os.getenv("DB_SECRET_ID")
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
 COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
+COGNITO_WEB_APP_CLIENT_ID = os.getenv("COGNITO_WEB_APP_CLIENT_ID")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 S3_UPLOAD_URL_EXPIRATION_SECONDS = 300
 S3_DOWNLOAD_URL_EXPIRATION_SECONDS = 300
@@ -327,7 +328,11 @@ def require_access_token(
         logger.warning("Rejected a Cognito token with the wrong token_use")
         raise unauthorized_exception()
 
-    if claims["client_id"] != COGNITO_APP_CLIENT_ID:
+    allowed_client_ids = {COGNITO_APP_CLIENT_ID}
+    if COGNITO_WEB_APP_CLIENT_ID:
+        allowed_client_ids.add(COGNITO_WEB_APP_CLIENT_ID)
+
+    if claims["client_id"] not in allowed_client_ids:
         logger.warning("Rejected a token issued for a different app client")
         raise unauthorized_exception()
 
